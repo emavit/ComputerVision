@@ -51,53 +51,136 @@ int main(int argc, char** argv)
     // Load the patches
     vector<Mat> patches_base = loadImage(path, "/patch_", "Base patches: ",false);
     vector<Mat> patches_affine = loadImage(path, "/patch_t_", "Affine Tranformed patches: ",false);
+    vector<Mat> patches;
 
     /**********************************************************
                                             USER CHOICE
         In this code section the user can decide the setup of the program.
     **********************************************************/
     cout << "------------------------------------------ IMAGE FIXER ------------------------------------------\n"<<endl;
-    cout << "You are required to make some choices before starting the program. Notice that you can fix one or\nmultiple images, deciding if you want to use SIFT or ORB\n\n"<<endl;
+    cout << "This program is able to reconstruct a corrupted image using a set of patches. The patches are" << endl;
+    cout << "extracted from the original image. You have to decide first what technique you want to apply.\n" << endl;
 
+    // Decide what technique to use to reconstruct images 
+    bool reconstructorType = userBinaryDecision("What tecnique do you want to use to reconstruct the image?", "Feature extraction", "Template matching");
 
+    // Use template matching
+    if(!reconstructorType){
+        cout << "-------------------------------------- TEMPLATE MATCHING -------------------------------------\n"<<endl;
+        cout << "You are going to reconstruct the image using template matching. This part only work with" << endl;
+        cout << "base patches. Moreover you are going to see intermediate results.\n" << endl;
+
+        String fd = getLastFolder(path);
+        Mat realImage = imread(path +"/" + fd + ".jpg");
+        Mat sourceImage = imread(path + "/image_to_complete.jpg");
+        namedWindow("Corrupted image", WINDOW_NORMAL);
+        imshow("Corrupted image", sourceImage);
+
+        // This section only works with base patches
+        patches = patches_base;
+
+        // Image on which patches wil be applied
+        Mat sourceCopy = sourceImage.clone();
+
+        // Iterate template matching for all patches
+        for(int i=0; i<patches.size(); i++){
+
+            // Overwrite the image with the one with the overlapped patch
+            sourceCopy = templateMatching(sourceCopy, patches[i]);
+
+            // Save results
+            string title = "Template Matching - Image blenede with patch up to " + to_string(i);
+            saveImageToFolder(sourceCopy, path, "results", title);
+            cout<<title<<endl;      
+
+            // Show results
+            namedWindow(title, WINDOW_AUTOSIZE);
+            imshow(title, sourceCopy);
+            waitKey(0);
+
+            // Show the difference with the original image when arriving at the last patch
+            if(i == patches.size() -1 )
+            {
+      
+                cout << "\nShowing the differences between the blended image and the real one...\n";
+
+                // Show differences
+                Mat diff = showImageDifferences(sourceCopy, realImage);
+                string sub = "Template Matching - Differences";
+                saveImageToFolder(diff, path, "results", sub);
+                waitKey(0);
+            }            
+        } 
+
+        cout<<"\n";
+
+        // Exit the program 
+        return -1;
+    }
+
+    cout << "-------------------------------------- FEATURE EXTRACTION --------------------------------------\n"<<endl;
+    cout << "You are required to make some choices before starting the program. Notice that you can fix" << endl;
+    cout << "one or multiple images, deciding if you want to use SIFT or ORB (with parametres choice)\n\n"<<endl;
 
     // Work with single corrupted image or with multiple courrupted images (BONUUS)
     bool mixedSource = userBinaryDecision("Do you want to use single or muliple corrupted images?", "Single [easy]", "Multiple [hard]");
 
+    // Decide if to print intermediate results (useful for debugging)
+    bool drawResults = userBinaryDecision("Do you want to print intermediate results?", "Yes", "No");
+
     // Patch selection
     bool pactSelect = userBinaryDecision("Select which set of patches you want to use:", "Base patches [easy]", "Affine patches [hard]");
 
-    vector<Mat> patches;
-
-    if(pactSelect == true)
-    {
+    if(pactSelect == true){
         patches = patches_base;
-    }
-    else
-    {
+    }else{
         patches = patches_affine;
     }
     int num_pathces = patches.size();
 
-
-
-    // Decide if to print intermediate results (useful for debugging)
-    bool drawResults = userBinaryDecision("Do you want to print intermediate results?", "Yes", "No");
-
     // Decide if to use SIFT or ORB (BONUS)
     int flag;
+    int features = 0;
+    int octavelayers = 0;
+    int minDis = 3;
+    int minMatchRANSAC = 3;
     bool imageAnalyzer = userBinaryDecision("Do you want to use SIFT or ORB for marching?", "SIFT", "ORB");
-    if(imageAnalyzer){
-        flag = 1;
-    }
-    else{
-        flag = 2;
-    }
+    bool imageAnalyzerParameters = userBinaryDecision("Do you want to use manual or automatic parameters", "Automatic", "Manual");
 
-    Ptr<Feature2D> recognizer = createFeatureDetector(imageAnalyzer);
+    if(imageAnalyzerParameters){
+        // Default values
+        if(imageAnalyzer){
+            flag = 1;
+            features = 0;
+            octavelayers = 5;
+         }else{
+            flag = 2;
+            features = 100000;
+        }   
+    }else{
+        // Manual values
+        if(imageAnalyzer){
+            flag = 1;
+            features = askThreshold("How many features do you want to extract? [0 = all possible features are extracted]", "Features: ", -1);
+            octavelayers = askThreshold("How many octave layers do you want to use?", "Octave layers: ", -1);
+            minDis = askThreshold("What threshold you want to use to refine mathches? [integrer value, usally set to 3]", "Threshold: ", 1);
+            minMatchRANSAC  = askThreshold("How many mathches do you want to have at least to apply RANSAC? [minum required is 3, higher values guarantee greater robustness]", "Minimum number of matches: ", 3);
+         }else{
+            flag = 2;
+            features = askThreshold("How many features do you want to extract? [chose a great value]", "Features: ", -1);
+            minDis = askThreshold("What threshold you want to use to refine mathches? [integrer value, usally set to 3]", "Threshold: ", 1);
+            minMatchRANSAC = askThreshold("How many mathches do you want to have at least to apply RANSAC? [minum required is 3, higher values guarantee greater robustness]", "Minimum number of matches: ", 3);
+        }   
+    }   
+
+   
+
+    cout << "\n\033[1;32mAnalysis parameters\033[0m\nNumber of features = " << features << "\nOctave layers = " << octavelayers;
+    cout << " [Only for SIFT]\nRefine threshold = "<< minDis << "\nNumber of matches for RANSAC = "<< minMatchRANSAC<< "\n" << endl;
+    Ptr<Feature2D> recognizer = createFeatureDetector(imageAnalyzer, octavelayers, features);
 
     // Decide if use automatic or manual RANSAC (BONUS)
-    bool homography = userBinaryDecision("Do you want to  manual or automatic RANSAC?", "Automatic", "Manual");
+    bool homography = userBinaryDecision("Do you want to use manual or automatic RANSAC?", "Automatic", "Manual");
 
 
     cout << "Loaded " << num_pathces << " patches." << endl;
@@ -152,7 +235,7 @@ int main(int argc, char** argv)
         // The finds best matches between the image and the patch
         if(drawResults){
             cout << "Extracting features and descriptors from patches...\n";
-            cout << "\n\nMATCHES\n";
+            cout << "\n\n\033[1;32mMATCHES\033[0m" << endl;
         }
 
         for (int i = 0; i < patches.size(); i++) {
@@ -162,7 +245,7 @@ int main(int argc, char** argv)
             Mat descTemp;
 
             // Replace the original patch with the best flipped version. 
-            patches[i] = flippingMatcher (recognizer, patches[i], descriptorsImage, distanceRatio);
+            patches[i] = flippingMatcher (recognizer, patches[i], descriptorsImage, distanceRatio, minDis);
 
             // Detect and compute features of the patch (using 'recognizer')   
             tie (descTemp, kpTemp) = KeypointsFeatureExtractor(recognizer, patches[i], drawResults, flag);
@@ -173,9 +256,9 @@ int main(int argc, char** argv)
             
             // Match descriptors of the image and the patch (pay attention to the last FLAG - determine what kind of error to use)
             if(flag == 1){
-                matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::SIFT)); 
+                matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::SIFT, minDis)); 
             }else{
-                matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::ORB));
+                matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::ORB, minDis));
             }
             
             
@@ -214,10 +297,10 @@ int main(int argc, char** argv)
         for (int i = 0; i < patches.size(); i++) {  
 
             if(i == 0)
-                cout<<"\nMERGE"<<endl;
+                cout << "\n\033[1;32mMERGE\033[0m" << endl;
 
             // Check if we have enough matches to find the transformation
-            if(matches[i].size()>=4){
+            if(matches[i].size()>=minMatchRANSAC){
                 // Find the transformation
                 Mat warpedPatch;
                 if  (homography) {
@@ -240,7 +323,8 @@ int main(int argc, char** argv)
             }
             else{
                 // If we do not have enough matches, we cannot find the transformation, hence print a warning
-                cout<<"We don't have enough matches for patch "+ to_string(i)<<endl;
+                
+                cout<<"\033[0;31mWe don't have enough matches for patch "+ to_string(i) << "\033[0m" <<endl;
             }
 
 
@@ -268,7 +352,7 @@ int main(int argc, char** argv)
                 String fd = getLastFolder(path);
                 Mat realImage = imread(path +"/" + fd + ".jpg");
                 Mat diff = showImageDifferences(sourceCopy, realImage);
-                string sub = "Differences";
+                string sub = "Feature Extraction - Differences";
                 if(homography)
                     sub = "RANSAC OpenCv & " + sub;
                 else
@@ -300,7 +384,7 @@ int main(int argc, char** argv)
 
         // Assign each patch to the corresponding image
         cout<<"Assigning patches to the correct image..."<<endl;
-        vector<vector<Mat>> orderedPatches = multiplePatchMatcher(sourceImages, patches, octavelayers, matchesThreshold, distanceRatio);
+        vector<vector<Mat>> orderedPatches = multiplePatchMatcher(sourceImages, patches, octavelayers, matchesThreshold, distanceRatio, minDis);
 
 
         cout<<"\nDone!\n"<<endl;
@@ -330,7 +414,7 @@ int main(int argc, char** argv)
                 Mat descTemp;
 
                 // Find best flipping
-                sourcePatches[i] = flippingMatcher (recognizer, sourcePatches[i], descriptorsImage, distanceRatio);
+                sourcePatches[i] = flippingMatcher (recognizer, sourcePatches[i], descriptorsImage, distanceRatio, minDis);
 
                 // Detect and compute SIFT features of the pach        
                 tie (descTemp, kpTemp) = KeypointsFeatureExtractor(recognizer, sourcePatches[i], drawResults, flag);
@@ -339,9 +423,9 @@ int main(int argc, char** argv)
                 
                 // Match SIFT descriptors of the image and the patch
                 if(flag == 1){
-                    matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::SIFT)); 
+                    matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::SIFT, minDis)); 
                 }else{
-                    matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::ORB));
+                    matches.push_back(matchRefine(descriptorsImage, descriptorsPatches[i], distanceRatio, Personal_Flags::ORB, minDis));
                 }  
                 
                 // Show matching results and save them
@@ -362,7 +446,7 @@ int main(int argc, char** argv)
             for (int i = 0; i < sourcePatches.size(); i++) {  
         
                 //checking if we have enough matches to find a transformation and then merge the image
-                if(matches[i].size()>=4){
+                if(matches[i].size()>=minMatchRANSAC){
                     bool homography = true;
                     
                     Mat warpedPatch;

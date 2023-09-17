@@ -1,4 +1,4 @@
-//#include "function.h"
+#include "function.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <random>
@@ -12,14 +12,6 @@
 
 using namespace std;
 using namespace cv;
-
-
-enum class Personal_Flags {
-    SIFT = 1,
-    ORB = 2,
-    OTHER = 4,
-    //FLAG4 = 8
-};
 
 
 /***************************************************************
@@ -59,15 +51,19 @@ bool userBinaryDecision (string title, string option1, string option2){
     while(selected == true) {
         cin >> choice;
         if(choice == "1"){
+            cout << "\033[1;32mValid choice: \033[0m";
+            cout << option1;  
             cout << "\n\n";
             decision = true;
             selected = false;
         }else if(choice == "2"){
+            cout << "\033[1;32mValid choice: \033[0m";
+            cout << option2;   
             cout << "\n\n";
             decision = false;
-            selected = false;        
+            selected = false;
         }else{
-            cout << "\034[0;33mInvalid Choice\033[0m"<<endl;
+            cout<<"\033[0;31mInvalid Choice\033[0m"<<endl;
             //cout << "Invalid choice.\n";
             cout << "\nChoice: ";
         }
@@ -78,14 +74,15 @@ bool userBinaryDecision (string title, string option1, string option2){
 
 }
 
-int askThreshold(string title, string subtitle, float threshold){
+
+int askThreshold(string title, string subtitle, int threshold){
 
     string input;
     int userInput;
     bool valid = false;
     while(!valid){
         cout << title <<endl;
-        cout << subtitle <<endl;
+        cout << subtitle;
         //cout<<endl<<"\033[1;33mHow many Octave Layers do you want SIFT to use? [the higher the value the higher the computational time]\033[0m"<<endl;
         //cout<<"Octave Layers [int>0]: ";
         cin >> input;
@@ -94,7 +91,7 @@ int askThreshold(string title, string subtitle, float threshold){
         stringstream ss(input);
         
         // Read the value from the stringstream
-        ss >> input;
+        ss >> userInput;
         
         // Check if the stringstream extraction was successful
         if (ss.fail()) {
@@ -104,11 +101,9 @@ int askThreshold(string title, string subtitle, float threshold){
         else{
             if(userInput < threshold){
                 cout<<"\033[0;31mInvalid Choice\033[0m"<<endl;
+            }else{
+                valid = true; 
             }
-            //else{
-            //   cout <<"\033[1;32mYour choice: " +to_string(userInput)+" was correctly registered\033[0m"<<endl<<endl;
-            //    valid = true; 
-            //}
             
         }
     }    
@@ -122,13 +117,11 @@ int askThreshold(string title, string subtitle, float threshold){
     Creates a <Feature2D> object using SIFT or ORB 
 **********************************************************/
 
-Ptr<Feature2D> createFeatureDetector(bool type) {
+Ptr<Feature2D> createFeatureDetector(bool type, int octavelayers, int features) {
     if (type) {
-        int octavelayers= 5;
-        int features = 0;
         return SIFT::create(features, octavelayers);
     } else 
-        return ORB::create(10000000);
+        return ORB::create(features);
 }
 
 
@@ -248,7 +241,7 @@ tuple<Mat, vector<KeyPoint>> KeypointsFeatureExtractor (Ptr<Feature2D> recognize
     returns a vector of DMatch objects containing the matches.
 ****************************************************************/
 
-vector<DMatch> matchRefine (Mat descriptorsImage, Mat descriptorsTemp, float distanceRatio, Personal_Flags flag){
+vector<DMatch> matchRefine (Mat descriptorsImage, Mat descriptorsTemp, float distanceRatio, Personal_Flags flag, int minDis){
 
     // Output vector
     vector<DMatch> matches;
@@ -293,9 +286,9 @@ vector<DMatch> matchRefine (Mat descriptorsImage, Mat descriptorsTemp, float dis
         }
     }
 
-    // Consider only matches with distance <= 3*minDistance
+    // Consider only matches with distance <= minDis*minDistance
     for (size_t j = 0; j < unfilteredMatches.size(); ++j) {
-        if (unfilteredMatches[j].distance <= 3 * minDistance) {
+        if (unfilteredMatches[j].distance <= minDis * minDistance) {
             matches.push_back(unfilteredMatches[j]);
         }
     }
@@ -319,7 +312,7 @@ vector<DMatch> matchRefine (Mat descriptorsImage, Mat descriptorsTemp, float dis
     desciptorsImage). The function returns the patch in its best orientation.
 ****************************************************************/
 
-Mat flippingMatcher (Ptr<Feature2D> sift, Mat patch, Mat descriptorsImage,  float distanceRatio){
+Mat flippingMatcher (Ptr<Feature2D> sift, Mat patch, Mat descriptorsImage,  float distanceRatio, int minDis){
     
     // Variable to consider the best number of matches find between
     int numMatchesBest = -1;
@@ -348,7 +341,7 @@ Mat flippingMatcher (Ptr<Feature2D> sift, Mat patch, Mat descriptorsImage,  floa
         // Detect and compute keypoints and descriptors of the flipped patch
         tie (descTemp, kpTemp) = KeypointsFeatureExtractor(sift, flippedPatch, false,1);
         // Find matches between the patch and the descriptors passed as input
-        matches = matchRefine(descriptorsImage, descTemp, distanceRatio, Personal_Flags::SIFT);
+        matches = matchRefine(descriptorsImage, descTemp, distanceRatio, Personal_Flags::SIFT, minDis);
 
         // Update the best patch at each iteration
         if(int(matches.size())>numMatchesBest){
@@ -570,7 +563,7 @@ Mat mergeNoShape (Mat image, Mat patch){
     assiciated with the corresponding image (ordered as the input). 
 ****************************************************************/
 
-vector<vector<Mat>> multiplePatchMatcher (vector<Mat> images, vector<Mat>patches, int octavelayers, int matchesThreshold, float distanceRatio){
+vector<vector<Mat>> multiplePatchMatcher (vector<Mat> images, vector<Mat>patches, int octavelayers, int matchesThreshold, float distanceRatio, int minDis){
     // Auxiliary varibale to store patches. We use a 2D vector in order to mainatin the order of the images
     vector<vector<Mat>> outPatches;
 
@@ -600,13 +593,13 @@ vector<vector<Mat>> multiplePatchMatcher (vector<Mat> images, vector<Mat>patches
             vector<DMatch> matches;
 
             // Find best flipping versoion of the patch
-            patches[j] = flippingMatcher (sift, patches[j], descriptorsImage, distanceRatio);
+            patches[j] = flippingMatcher (sift, patches[j], descriptorsImage, distanceRatio, minDis);
 
             // Detect and compute SIFT features of the pach        
             tie (descTemp, kpTemp) = KeypointsFeatureExtractor(sift, patches[j], false,1);
 
             // Evaluate the matches between the image and the patch
-            matches = matchRefine(descriptorsImage, descTemp, distanceRatio, Personal_Flags::SIFT);
+            matches = matchRefine(descriptorsImage, descTemp, distanceRatio, Personal_Flags::SIFT, minDis);
 
             // Check the sparsity of the matches. This parameter is really important. In fact, by tuning the sparsity we can deal with
             // really different corrupted images. Tune it for good results!!!
@@ -688,4 +681,37 @@ string getLastFolder(const std::string& path)
     string lastFolder = fsPath.filename().string();
 
     return lastFolder;
+}
+
+/***************************************************************
+                                    TEMPLATE MATCHING
+    Function that receives as input a patch and the corrupted image. It returns
+    the corrupted image with the patch applied on it/
+****************************************************************/
+
+Mat templateMatching(Mat corruptedImage, Mat patch){
+
+    // Create a copy of the corrupted image
+    Mat imageOut=corruptedImage.clone();
+
+    // Create the comparison mapping
+    Mat result;
+    int diffCols = imageOut.cols - patch.cols + 1;
+    int diffRows = imageOut.rows - patch.rows + 1;
+    result.create(diffRows, diffCols, CV_32FC1);
+
+    // Execute template matching function
+    matchTemplate(imageOut, patch, result, TM_CCOEFF_NORMED);
+    double minVal, maxVal;
+    Point minLoc, maxLoc;
+
+    // Pass values by reference
+    minMaxLoc(result, &minVal, &maxVal, &minLoc, &maxLoc, Mat());
+
+    // Create a mask that is used to place tha patch in the right position
+    Rect placeMask(maxLoc, Size(patch.cols, patch.rows));
+    //attaching the patch to the image in the position required by the mask
+    patch.copyTo(imageOut(placeMask));
+
+    return imageOut;
 }
